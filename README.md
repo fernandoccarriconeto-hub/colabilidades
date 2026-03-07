@@ -1,20 +1,38 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Colabilidades
 
-# Run and deploy your AI Studio app
+Aplicação full stack (React + Express + SQLite + Gemini) para colaboração e ideação em equipe.
 
-This contains everything you need to run your app locally.
+## Rodar localmente
 
-View your app in AI Studio: https://ai.studio/apps/59746e9e-444d-4ccd-b4ef-e794a8912ef0
+Pré-requisitos:
+- Node.js 22+
 
-## Run Locally
+Passos:
+1. Copie `.env.example` para `.env` e ajuste as variáveis.
+2. Instale dependências:
+   ```bash
+   npm install
+   ```
+3. Execute:
+   ```bash
+   npm run dev
+   ```
 
-**Prerequisites:**  Node.js
+## Publicar na internet (Render)
 
+Este repositório já inclui `Dockerfile` e `render.yaml` para deploy.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Abra o deploy em 1 clique:
+   [Deploy no Render](https://render.com/deploy?repo=https://github.com/fernandoccarriconeto-hub/colabilidades)
+2. Confirme o serviço web.
+3. Defina `GEMINI_API_KEY` nas variáveis de ambiente.
+4. Aguarde o build finalizar.
+
+Após o deploy, o app ficará disponível na URL pública do Render.
+
+## Variáveis de ambiente
+
+- `PORT`: porta HTTP do servidor (default `3000` localmente).
+- `NODE_ENV`: `development` ou `production`.
+- `DB_PATH`: caminho do arquivo SQLite (em produção Render: `/var/data/colabilidades.db`).
+- `GEMINI_API_KEY`: chave da API Gemini para endpoints de IA.
