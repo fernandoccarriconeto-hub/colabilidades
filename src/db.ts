@@ -123,13 +123,26 @@ export function initDb() {
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
       description TEXT NOT NULL,
       responsible_id INTEGER,
       status TEXT DEFAULT 'pending', -- 'pending', 'in_progress', 'done'
+      position_x INTEGER DEFAULT 0,
+      position_y INTEGER DEFAULT 0,
+      color TEXT DEFAULT '#ffffff',
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
       FOREIGN KEY (responsible_id) REFERENCES users(id)
     )
   `);
+  
+  try {
+    db.exec('ALTER TABLE tasks ADD COLUMN title TEXT DEFAULT "New Task"');
+    db.exec('ALTER TABLE tasks ADD COLUMN position_x INTEGER DEFAULT 0');
+    db.exec('ALTER TABLE tasks ADD COLUMN position_y INTEGER DEFAULT 0');
+    db.exec('ALTER TABLE tasks ADD COLUMN color TEXT DEFAULT "#ffffff"');
+  } catch (e) {
+    // Columns likely already exist
+  }
   
   // Seed some initial data if empty (optional, but good for testing)
   const stmt = db.prepare('SELECT count(*) as count FROM users');

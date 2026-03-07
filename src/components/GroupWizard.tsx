@@ -81,9 +81,12 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
     });
     const ideaData = await ideaRes.json();
 
-    // Then promote to project immediately
-    // (We would need an endpoint for this, or just rely on the idea status update logic if we had it. 
-    // For now, let's just create the group and let them manage ideas)
+    // 4. Activate Project
+    await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea_id: ideaData.id, objective: projectDesc })
+    });
 
     setActiveGroup({ id: groupData.id, name: groupName, description: projectDesc, admin_id: user!.id });
     onComplete();

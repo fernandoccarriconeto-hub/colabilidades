@@ -6,14 +6,21 @@ import GroupWizard from './components/GroupWizard';
 import IdeaBoard from './components/IdeaBoard';
 import Landing from './components/Landing';
 import EditProfile from './components/EditProfile';
+import ProjectCanvas from './components/ProjectCanvas';
 import { LogOut, Home, Lightbulb, Menu, X, Settings } from 'lucide-react';
 
 function Main() {
   const { user, logout } = useApp();
   const [currentView, setCurrentView] = useState('dashboard');
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [showLanding, setShowLanding] = useState(true);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleOpenProject = (projectId: number) => {
+    setSelectedProjectId(projectId);
+    setCurrentView('project-canvas');
+  };
 
   if (showLanding) {
     return <Landing onEnter={() => setShowLanding(false)} />;
@@ -149,9 +156,12 @@ function Main() {
       )}
 
       <main className="flex-grow py-6 md:py-8 px-4 md:px-0">
-        {currentView === 'dashboard' && <Dashboard onViewChange={setCurrentView} />}
+        {currentView === 'dashboard' && <Dashboard onViewChange={setCurrentView} onOpenProject={handleOpenProject} />}
         {currentView === 'group-wizard' && <GroupWizard onComplete={() => setCurrentView('dashboard')} />}
         {currentView === 'ideas' && <IdeaBoard />}
+        {currentView === 'project-canvas' && selectedProjectId && (
+          <ProjectCanvas projectId={selectedProjectId} onBack={() => setCurrentView('dashboard')} />
+        )}
       </main>
 
       {showEditProfile && (

@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context';
 import { motion } from 'motion/react';
-import { Plus, Users, Lightbulb, Rocket, ArrowRight, CheckCircle } from 'lucide-react';
+import { Plus, Users, Lightbulb, Rocket, ArrowRight, CheckCircle, Kanban } from 'lucide-react';
 
-export default function Dashboard({ onViewChange }: { onViewChange: (view: string) => void }) {
+export default function Dashboard({ onViewChange, onOpenProject }: { onViewChange: (view: string) => void, onOpenProject: (id: number) => void }) {
   const { user, activeGroup } = useApp();
   const [stats, setStats] = useState({ ideas: 0, projects: 0 });
+  const [projects, setProjects] = useState<any[]>([]);
 
   useEffect(() => {
     fetch('/api/ideas')
       .then(res => res.json())
       .then(data => {
         const ideas = data.length;
-        const projects = data.filter((i: any) => i.status === 'project').length;
-        setStats({ ideas, projects });
+        const projectsCount = data.filter((i: any) => i.status === 'project').length;
+        setStats({ ideas, projects: projectsCount });
       });
+
+    fetch('/api/projects')
+      .then(res => res.json())
+      .then(data => setProjects(data));
   }, []);
 
   return (
@@ -65,6 +70,59 @@ export default function Dashboard({ onViewChange }: { onViewChange: (view: strin
           <h3 className="text-xl font-bold">Novo Grupo</h3>
           <p className="text-indigo-100 text-sm mt-1">Crie um time e comece a inovar</p>
         </motion.div>
+      </div>
+
+      {/* Active Projects Section */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold text-neutral-900">Meus Projetos</h2>
+        
+        {projects.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map(project => (
+              <motion.div
+                key={project.id}
+                whileHover={{ scale: 1.02 }}
+                className="bg-white p-6 rounded-2xl shadow-sm border border-neutral-200 cursor-pointer hover:border-indigo-300 transition-colors"
+                onClick={() => onOpenProject(project.id)}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
+                    <Kanban size={20} />
+                  </div>
+                  <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">
+                    Em Andamento
+                  </span>
+                </div>
+                <h3 className="font-bold text-lg text-neutral-900 mb-2">{project.title}</h3>
+                <p className="text-sm text-neutral-500 line-clamp-2 mb-4">{project.objective}</p>
+                
+                <div className="flex items-center justify-between pt-4 border-t border-neutral-100">
+                  <span className="text-xs text-neutral-400">Grupo: {project.group_name || 'N/A'}</span>
+                  <div className="flex items-center text-indigo-600 text-sm font-medium gap-1">
+                    Abrir Canvas <ArrowRight size={16} />
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-neutral-50 border-2 border-dashed border-neutral-200 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
+            <div className="w-16 h-16 bg-neutral-100 rounded-full flex items-center justify-center text-neutral-400 mb-4">
+              <Rocket size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-neutral-900 mb-2">Nenhum projeto ativo</h3>
+            <p className="text-neutral-500 max-w-md mb-6">
+              Você ainda não tem projetos em andamento. Crie um novo grupo para iniciar um projeto e acessar o Canvas.
+            </p>
+            <button 
+              onClick={() => onViewChange('group-wizard')}
+              className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"
+            >
+              <Plus size={18} />
+              Iniciar Novo Projeto
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-neutral-100 p-6">
