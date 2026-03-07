@@ -127,10 +127,20 @@ app.get('/api/groups', (req, res) => {
 
 app.post('/api/groups/:id/members', (req, res) => {
   const { user_id, role } = req.body;
+  const groupId = Number(req.params.id);
+  const userId = Number(user_id);
+
+  if (!Number.isInteger(groupId) || !Number.isInteger(userId)) {
+    return res.status(400).json({ error: 'group_id e user_id inválidos.' });
+  }
+
   try {
-    db.prepare('INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)').run(req.params.id, user_id, role || 'Member');
+    db.prepare('INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)').run(groupId, userId, role || 'Member');
     res.json({ message: 'Member added' });
   } catch (error: any) {
+    if (error.message?.includes('UNIQUE constraint failed: group_members.group_id, group_members.user_id')) {
+      return res.status(409).json({ error: 'Este usuário já faz parte do grupo.' });
+    }
     res.status(500).json({ error: error.message });
   }
 });

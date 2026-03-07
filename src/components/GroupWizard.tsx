@@ -58,6 +58,10 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
     try {
       // Fetch details of selected users to send to AI
       const teamMembers = availableUsers.filter(u => selectedUsers.includes(u.id));
+      if (teamMembers.length === 0) {
+        setError('Selecione integrantes diferentes de você para definir papéis.');
+        return;
+      }
       
       const res = await fetch('/api/ai/assign-roles', {
         method: 'POST',
@@ -105,7 +109,8 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
       const groupData = await res.json();
 
       // 2. Add Members with Roles
-      for (const userId of selectedUsers) {
+      const memberIds = [...new Set(selectedUsers)].filter((memberId) => memberId !== user.id);
+      for (const userId of memberIds) {
         const assignment = roleAssignments.find((a: any) => a.user_id === userId);
         const role = assignment ? assignment.role : 'Member';
 
@@ -162,7 +167,8 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
         throw new Error(await readApiError(res, 'Falha ao buscar sugestões da IA.'));
       }
       const data = await res.json();
-      setAiSuggestions(data.candidates || []);
+      const filteredSuggestions = (data.candidates || []).filter((candidate: any) => candidate.user_id !== user?.id);
+      setAiSuggestions(filteredSuggestions);
       setStep(3);
     } catch (err: any) {
       setError(err.message || 'Falha ao buscar sugestões da IA.');
@@ -301,6 +307,10 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
                   <p className="text-sm text-neutral-600 mb-3">{s.reason}</p>
                   <button 
                     onClick={() => {
+                      if (s.user_id === user?.id) {
+                        setError('Você já é o administrador do grupo e já está incluído automaticamente.');
+                        return;
+                      }
                       if (!selectedUsers.includes(s.user_id)) {
                         setSelectedUsers([...selectedUsers, s.user_id]);
                       }
