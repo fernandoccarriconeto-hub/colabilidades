@@ -2,7 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context';
 import { motion } from 'motion/react';
 import { User } from '../types';
-import { Bot, Check, UserPlus } from 'lucide-react';
+import { Bot, Check, UserPlus, AlertCircle, Loader2 } from 'lucide-react';
+
+async function readApiError(res: Response, fallback: string) {
+  try {
+    const data = await res.json();
+    return data?.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function GroupWizard({ onComplete }: { onComplete: () => void }) {
   const { user, setActiveGroup } = useApp();
@@ -13,17 +22,39 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch('/api/users')
-      .then(res => res.json())
-      .then(data => setAvailableUsers(data.filter((u: User) => u.id !== user?.id)));
+    const loadUsers = async () => {
+      try {
+        const res = await fetch('/api/users');
+        if (!res.ok) {
+          throw new Error(await readApiError(res, 'Falha ao carregar usuários.'));
+        }
+        const data = await res.json();
+        setAvailableUsers(data.filter((u: User) => u.id !== user?.id));
+      } catch (err: any) {
+        setError(err.message || 'Falha ao carregar usuários.');
+      }
+    };
+    loadUsers();
   }, [user]);
 
   const [roleAssignments, setRoleAssignments] = useState<any[]>([]);
 
   const handleAssignRoles = async () => {
+    if (!projectDesc.trim()) {
+      setError('Descreva o projeto antes de definir papéis.');
+      return;
+    }
+    if (selectedUsers.length === 0) {
+      setError('Selecione pelo menos um integrante.');
+      return;
+    }
+
     setLoading(true);
+    setError('');
     try {
       // Fetch details of selected users to send to AI
       const teamMembers = availableUsers.filter(u => selectedUsers.includes(u.id));
@@ -33,75 +64,108 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ project_description: projectDesc, team_members: teamMembers })
       });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, 'Falha ao definir papéis com IA.'));
+      }
       const data = await res.json();
       setRoleAssignments(data.assignments || []);
       setStep(4);
-    } catch (error) {
-      console.error(error);
+    } catch (err: any) {
+      setError(err.message || 'Falha ao definir papéis com IA.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleFinalizeGroup = async () => {
-    if (!groupName) return;
-    
-    // 1. Create Group
-    const res = await fetch('/api/groups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: groupName, description: projectDesc, admin_id: user?.id })
-    });
-    const groupData = await res.json();
-    
-    // 2. Add Members with Roles
-    for (const userId of selectedUsers) {
-      const assignment = roleAssignments.find((a: any) => a.user_id === userId);
-      const role = assignment ? assignment.role : 'Member';
-      
-      await fetch(`/api/groups/${groupData.id}/members`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, role: role })
-      });
+    const normalizedGroupName = groupName.trim();
+    const normalizedProjectDesc = projectDesc.trim();
+    if (!normalizedGroupName || !normalizedProjectDesc) {
+      setError('Nome do grupo e descrição do projeto são obrigatórios.');
+      return;
+    }
+    if (!user?.id) {
+      setError('Usuário não autenticado.');
+      return;
     }
 
-    // 3. Create Project from this initial idea
-    // First create the idea
-    const ideaRes = await fetch('/api/ideas', {
+    setFinalizing(true);
+    setError('');
+
+    try {
+      // 1. Create Group
+      const res = await fetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: normalizedGroupName, description: normalizedProjectDesc, admin_id: user.id })
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, 'Falha ao criar grupo.'));
+      }
+      const groupData = await res.json();
+
+      // 2. Add Members with Roles
+      for (const userId of selectedUsers) {
+        const assignment = roleAssignments.find((a: any) => a.user_id === userId);
+        const role = assignment ? assignment.role : 'Member';
+
+        const memberRes = await fetch(`/api/groups/${groupData.id}/members`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, role: role })
+        });
+        if (!memberRes.ok) {
+          throw new Error(await readApiError(memberRes, 'Falha ao adicionar integrante ao grupo.'));
+        }
+      }
+
+      // 3. Register an initial idea for the new group
+      const ideaRes = await fetch('/api/ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-            title: `Projeto: ${groupName}`, 
-            description: projectDesc, 
+            title: `Projeto: ${normalizedGroupName}`, 
+            description: normalizedProjectDesc, 
             area: 'Inovação', 
-            author_id: user?.id,
+            author_id: user.id,
             group_id: groupData.id 
         })
-    });
-    const ideaData = await ideaRes.json();
+      });
+      if (!ideaRes.ok) {
+        throw new Error(await readApiError(ideaRes, 'Grupo criado, mas falha ao registrar ideia inicial.'));
+      }
 
-    // Then promote to project immediately
-    // (We would need an endpoint for this, or just rely on the idea status update logic if we had it. 
-    // For now, let's just create the group and let them manage ideas)
-
-    setActiveGroup({ id: groupData.id, name: groupName, description: projectDesc, admin_id: user!.id });
-    onComplete();
+      setActiveGroup({ id: groupData.id, name: normalizedGroupName, description: normalizedProjectDesc, admin_id: user.id });
+      onComplete();
+    } catch (err: any) {
+      setError(err.message || 'Falha ao finalizar grupo.');
+    } finally {
+      setFinalizing(false);
+    }
   };
 
   const getAiSuggestions = async () => {
+    if (!projectDesc.trim()) {
+      setError('Descreva o projeto antes de solicitar sugestões da IA.');
+      return;
+    }
+
     setLoading(true);
+    setError('');
     try {
       const res = await fetch('/api/ai/suggest-team', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_description: projectDesc, count: 3 })
+        body: JSON.stringify({ project_description: projectDesc.trim(), count: 3 })
       });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, 'Falha ao buscar sugestões da IA.'));
+      }
       const data = await res.json();
       setAiSuggestions(data.candidates || []);
       setStep(3);
-    } catch (error) {
-      console.error(error);
+    } catch (err: any) {
+      setError(err.message || 'Falha ao buscar sugestões da IA.');
     } finally {
       setLoading(false);
     }
@@ -113,6 +177,12 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
         <h2 className="text-2xl font-bold text-neutral-900">Novo Grupo de Inovação</h2>
         <p className="text-neutral-500">Vamos montar o time perfeito para sua ideia.</p>
       </div>
+      {error && (
+        <div className="mb-6 flex items-center gap-2 text-red-700 bg-red-50 border border-red-100 p-3 rounded-xl">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
 
       {step === 1 && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -290,8 +360,10 @@ export default function GroupWizard({ onComplete }: { onComplete: () => void }) 
 
            <button 
              onClick={handleFinalizeGroup}
-             className="w-full bg-indigo-600 text-white p-3 rounded-xl font-medium hover:bg-indigo-700"
+             disabled={finalizing}
+             className="w-full bg-indigo-600 text-white p-3 rounded-xl font-medium hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2"
            >
+             {finalizing && <Loader2 size={16} className="animate-spin" />}
              Confirmar e Iniciar Projeto
            </button>
         </motion.div>

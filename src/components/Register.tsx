@@ -26,6 +26,10 @@ export default function Register() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setError("A imagem deve ter no máximo 5MB.");
+        return;
+      }
       const reader = new FileReader();
       reader.onloadend = () => {
         setFormData({ ...formData, avatar: reader.result as string });
@@ -53,7 +57,10 @@ export default function Register() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.email.trim()) {
+    const normalizedName = formData.name.trim();
+    const normalizedEmail = formData.email.trim().toLowerCase();
+
+    if (!normalizedName || !normalizedEmail) {
       setError("Nome e email são obrigatórios.");
       setStep(1);
       return;
@@ -66,23 +73,23 @@ export default function Register() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, name: normalizedName, email: normalizedEmail })
       });
       
       if (res.ok) {
         const data = await res.json();
         // Simulate "Welcome Email"
-        alert(`Bem-vindo ao Colabilidades, ${formData.name}! Um email de boas-vindas foi enviado para ${formData.email}.`);
+        alert(`Bem-vindo ao Colabilidades, ${normalizedName}! Um email de boas-vindas foi enviado para ${normalizedEmail}.`);
         
         // Auto login
-        const userRes = await fetch(`/api/users/${formData.email}`);
+        const userRes = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
         const userData = await userRes.json();
         setUser(userData);
         localStorage.setItem('colabilidades_user', JSON.stringify(userData));
       } else if (res.status === 409) {
         // User already exists, try to login
         try {
-          const userRes = await fetch(`/api/users/${formData.email}`);
+          const userRes = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
           if (userRes.ok) {
             const userData = await userRes.json();
             setUser(userData);
@@ -154,6 +161,7 @@ export default function Register() {
             />
             <input 
               name="email" 
+              type="email"
               placeholder="Email" 
               className="w-full p-3 border border-neutral-200 rounded-xl"
               value={formData.email}

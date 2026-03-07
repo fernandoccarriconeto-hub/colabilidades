@@ -14,6 +14,8 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.NODE_ENV === 'production';
+const isValidScore = (value: unknown): value is number =>
+  Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 5;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -136,9 +138,25 @@ app.post('/api/groups/:id/members', (req, res) => {
 // --- Ideas ---
 app.post('/api/ideas', (req, res) => {
   const { title, description, area, author_id, group_id } = req.body;
+  const normalizedTitle = String(title || '').trim();
+  const normalizedDescription = String(description || '').trim();
+  const normalizedArea = String(area || '').trim();
+  const authorId = Number(author_id);
+  const groupId = group_id == null ? null : Number(group_id);
+
+  if (!normalizedTitle || !normalizedDescription || !normalizedArea) {
+    return res.status(400).json({ error: 'Título, descrição e área são obrigatórios.' });
+  }
+  if (!Number.isInteger(authorId)) {
+    return res.status(400).json({ error: 'author_id inválido.' });
+  }
+  if (groupId !== null && !Number.isInteger(groupId)) {
+    return res.status(400).json({ error: 'group_id inválido.' });
+  }
+
   try {
     const stmt = db.prepare('INSERT INTO ideas (title, description, area, author_id, group_id) VALUES (?, ?, ?, ?, ?)');
-    const info = stmt.run(title, description, area, author_id, group_id);
+    const info = stmt.run(normalizedTitle, normalizedDescription, normalizedArea, authorId, groupId);
     res.json({ id: info.lastInsertRowid, message: 'Idea registered' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -157,8 +175,22 @@ app.get('/api/ideas', (req, res) => {
 
 app.post('/api/ideas/:id/improvements', (req, res) => {
   const { author_id, description } = req.body;
+  const ideaId = Number(req.params.id);
+  const authorId = Number(author_id);
+  const normalizedDescription = String(description || '').trim();
+
+  if (!Number.isInteger(ideaId)) {
+    return res.status(400).json({ error: 'idea_id inválido.' });
+  }
+  if (!Number.isInteger(authorId)) {
+    return res.status(400).json({ error: 'author_id inválido.' });
+  }
+  if (!normalizedDescription) {
+    return res.status(400).json({ error: 'Descrição da melhoria é obrigatória.' });
+  }
+
   try {
-    db.prepare('INSERT INTO idea_improvements (idea_id, author_id, description) VALUES (?, ?, ?)').run(req.params.id, author_id, description);
+    db.prepare('INSERT INTO idea_improvements (idea_id, author_id, description) VALUES (?, ?, ?)').run(ideaId, authorId, normalizedDescription);
     res.json({ message: 'Improvement added' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -177,14 +209,60 @@ app.get('/api/ideas/:id/improvements', (req, res) => {
 
 app.post('/api/ideas/:id/vote', (req, res) => {
   const { user_id, impact, viability, innovation } = req.body;
+  const ideaId = Number(req.params.id);
+  const userId = Number(user_id);
+  const impactScore = Number(impact);
+  const viabilityScore = Number(viability);
+  const innovationScore = Number(innovation);
+
+  if (!Number.isInteger(ideaId) || !Number.isInteger(userId)) {
+    return res.status(400).json({ error: 'idea_id e user_id devem ser números inteiros.' });
+  }
+  if (!isValidScore(impactScore) || !isValidScore(viabilityScore) || !isValidScore(innovationScore)) {
+    return res.status(400).json({ error: 'As notas devem estar entre 1 e 5.' });
+  }
+
   try {
     db.prepare(`
       INSERT INTO votes (idea_id, user_id, impact, viability, innovation) 
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(idea_id, user_id) DO UPDATE SET
       impact=excluded.impact, viability=excluded.viability, innovation=excluded.innovation
-    `).run(req.params.id, user_id, impact, viability, innovation);
+    `).run(ideaId, userId, impactScore, viabilityScore, innovationScore);
     res.json({ message: 'Vote recorded' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/ideas/:id/promote', (req, res) => {
+  const ideaId = Number(req.params.id);
+  const objective = req.body?.objective ? String(req.body.objective).trim() : null;
+
+  if (!Number.isInteger(ideaId)) {
+    return res.status(400).json({ error: 'idea_id inválido.' });
+  }
+
+  try {
+    const idea = db.prepare('SELECT id, status FROM ideas WHERE id = ?').get(ideaId) as { id: number; status: string } | undefined;
+    if (!idea) {
+      return res.status(404).json({ error: 'Ideia não encontrada.' });
+    }
+
+    const scoreRow = db.prepare(`
+      SELECT AVG((impact + viability + innovation)/3.0) as score
+      FROM votes
+      WHERE idea_id = ?
+    `).get(ideaId) as { score: number | null };
+
+    if (!scoreRow?.score || scoreRow.score < 4) {
+      return res.status(400).json({ error: 'A ideia precisa de nota média mínima 4.0 para ser promovida.' });
+    }
+
+    db.prepare(`UPDATE ideas SET status = 'project' WHERE id = ?`).run(ideaId);
+    db.prepare('INSERT OR IGNORE INTO projects (idea_id, objective) VALUES (?, ?)').run(ideaId, objective);
+
+    res.json({ message: 'Ideia promovida para projeto com sucesso.' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -193,6 +271,15 @@ app.post('/api/ideas/:id/vote', (req, res) => {
 // --- AI Features ---
 app.post('/api/ai/suggest-team', async (req, res) => {
   const { project_description, count = 3 } = req.body;
+  const normalizedProjectDescription = String(project_description || '').trim();
+  const candidateCount = Number(count);
+
+  if (!normalizedProjectDescription) {
+    return res.status(400).json({ error: 'project_description é obrigatório.' });
+  }
+  if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > 10) {
+    return res.status(400).json({ error: 'count deve ser um número entre 1 e 10.' });
+  }
   
   try {
     // Fetch all users and their skills
@@ -208,12 +295,12 @@ app.post('/api/ai/suggest-team', async (req, res) => {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const prompt = `
-      I need to form a team for the following project: "${project_description}".
+      I need to form a team for the following project: "${normalizedProjectDescription}".
       
       Here is the pool of available users with their skills:
       ${JSON.stringify(usersWithSkills, null, 2)}
       
-      Please select the best ${count} candidates for this project.
+      Please select the best ${candidateCount} candidates for this project.
       For each candidate, explain why they were chosen and suggest a specific role.
       
       Return the response in JSON format with the following structure:
@@ -250,6 +337,14 @@ app.post('/api/ai/suggest-team', async (req, res) => {
 
 app.post('/api/ai/assign-roles', async (req, res) => {
   const { project_description, team_members } = req.body; // team_members is array of user objects with skills
+  const normalizedProjectDescription = String(project_description || '').trim();
+
+  if (!normalizedProjectDescription) {
+    return res.status(400).json({ error: 'project_description é obrigatório.' });
+  }
+  if (!Array.isArray(team_members) || team_members.length === 0) {
+    return res.status(400).json({ error: 'team_members deve ser um array com ao menos 1 integrante.' });
+  }
   
   try {
     if (!process.env.GEMINI_API_KEY) {
@@ -258,7 +353,7 @@ app.post('/api/ai/assign-roles', async (req, res) => {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
     const prompt = `
-      I have a team for the project: "${project_description}".
+      I have a team for the project: "${normalizedProjectDescription}".
       
       Team Members:
       ${JSON.stringify(team_members, null, 2)}
