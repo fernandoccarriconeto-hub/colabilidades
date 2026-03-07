@@ -20,7 +20,7 @@ function Main() {
   }
 
   if (!user) {
-    return <Register />;
+    return <Register onBack={() => setShowLanding(true)} />;
   }
 
   return (

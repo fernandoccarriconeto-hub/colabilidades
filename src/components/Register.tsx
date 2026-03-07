@@ -2,14 +2,22 @@ import React, { useState, useRef } from 'react';
 import { SKILL_CATEGORIES } from '../constants';
 import { useApp } from '../context';
 import { motion } from 'motion/react';
-import { Camera, Upload, Loader2, AlertCircle } from 'lucide-react';
+import { Camera, Loader2, AlertCircle, ArrowLeft, MailCheck } from 'lucide-react';
 
-export default function Register() {
+type Stage = 'check-email' | 'profile' | 'skills';
+
+interface RegisterProps {
+  onBack?: () => void;
+}
+
+export default function Register({ onBack }: RegisterProps) {
   const { setUser } = useApp();
-  const [step, setStep] = useState(1);
+  const [stage, setStage] = useState<Stage>('check-email');
   const [loading, setLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -47,13 +55,68 @@ export default function Register() {
     }
   };
 
-  const handleNextStep = () => {
-    if (!formData.name.trim() || !formData.email.trim()) {
-      setError("Por favor, preencha seu nome e email para continuar.");
+  const goBack = () => {
+    setError('');
+    if (stage === 'skills') {
+      setStage('profile');
+      return;
+    }
+    if (stage === 'profile') {
+      setStage('check-email');
+      return;
+    }
+    onBack?.();
+  };
+
+  const handleVerifyEmail = async () => {
+    const normalizedEmail = formData.email.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setError("Digite seu email para verificar.");
+      return;
+    }
+
+    setCheckingEmail(true);
+    setError('');
+
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
+
+      if (res.ok) {
+        const userData = await res.json();
+        setUser(userData);
+        localStorage.setItem('colabilidades_user', JSON.stringify(userData));
+        alert(`Bem-vindo de volta, ${userData.name}!`);
+        return;
+      }
+
+      if (res.status === 404) {
+        setFormData((prev) => ({ ...prev, email: normalizedEmail }));
+        setStage('profile');
+        return;
+      }
+
+      let message = 'Erro ao verificar email.';
+      try {
+        const data = await res.json();
+        message = data?.error || message;
+      } catch {
+        // ignore parse error
+      }
+      setError(message);
+    } catch (err) {
+      setError("Erro ao conectar com o servidor. Verifique sua conexão.");
+    } finally {
+      setCheckingEmail(false);
+    }
+  };
+
+  const handleNextToSkills = () => {
+    if (!formData.name.trim()) {
+      setError("Por favor, preencha seu nome para continuar.");
       return;
     }
     setError('');
-    setStep(2);
+    setStage('skills');
   };
 
   const handleSubmit = async () => {
@@ -62,7 +125,6 @@ export default function Register() {
 
     if (!normalizedName || !normalizedEmail) {
       setError("Nome e email são obrigatórios.");
-      setStep(1);
       return;
     }
 
@@ -77,17 +139,17 @@ export default function Register() {
       });
       
       if (res.ok) {
-        const data = await res.json();
-        // Simulate "Welcome Email"
         alert(`Bem-vindo ao Colabilidades, ${normalizedName}! Um email de boas-vindas foi enviado para ${normalizedEmail}.`);
         
-        // Auto login
         const userRes = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
+        if (!userRes.ok) {
+          setError('Cadastro feito, mas não foi possível carregar o usuário automaticamente.');
+          return;
+        }
         const userData = await userRes.json();
         setUser(userData);
         localStorage.setItem('colabilidades_user', JSON.stringify(userData));
       } else if (res.status === 409) {
-        // User already exists, try to login
         try {
           const userRes = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
           if (userRes.ok) {
@@ -98,15 +160,14 @@ export default function Register() {
           } else {
             setError('Este email já está cadastrado, mas não conseguimos recuperar seus dados.');
           }
-        } catch (e) {
+        } catch {
           setError('Erro ao tentar fazer login automático.');
         }
       } else {
         const errorData = await res.json();
         setError(errorData.error || 'Erro ao cadastrar. Tente novamente.');
       }
-    } catch (error) {
-      console.error("Registration error", error);
+    } catch (err) {
       setError("Erro ao conectar com o servidor. Verifique sua conexão.");
     } finally {
       setLoading(false);
@@ -115,22 +176,82 @@ export default function Register() {
 
   return (
     <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-white p-6 md:p-8 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden"
       >
         <div className="shrink-0">
+          <button
+            onClick={goBack}
+            className="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900 mb-4"
+          >
+            <ArrowLeft size={16} />
+            Voltar
+          </button>
           <h1 className="text-2xl md:text-3xl font-bold text-neutral-900 mb-2">Colabilidades</h1>
           <p className="text-neutral-500 mb-6">Laboratório Digital de Ideias</p>
         </div>
 
-        {step === 1 && (
+        {stage === 'check-email' && (
+          <div className="space-y-4 overflow-y-auto px-1 flex-1 min-h-0">
+            <div className="flex items-center gap-2 text-indigo-700">
+              <MailCheck size={20} />
+              <h2 className="text-xl font-semibold text-neutral-900">Verificar cadastro</h2>
+            </div>
+            <p className="text-sm text-neutral-600">
+              Digite apenas seu email para verificar se você já tem cadastro.
+            </p>
+            <input
+              name="email"
+              type="email"
+              placeholder="Email"
+              className="w-full p-3 border border-neutral-200 rounded-xl"
+              value={formData.email}
+              onChange={handleInputChange}
+            />
+            {error && (
+              <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg text-sm">
+                <AlertCircle size={16} />
+                <span>{error}</span>
+              </div>
+            )}
+            <button
+              onClick={handleVerifyEmail}
+              disabled={checkingEmail}
+              className="w-full bg-indigo-600 text-white p-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {checkingEmail ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>Verificando...</span>
+                </>
+              ) : (
+                'Verificar email'
+              )}
+            </button>
+          </div>
+        )}
+
+        {stage === 'profile' && (
           <div className="space-y-4 overflow-y-auto px-1 flex-1 min-h-0">
             <h2 className="text-xl font-semibold">Quem é você?</h2>
-            
-            <div className="flex justify-center mb-6">
-              <div 
+
+            <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200">
+              <p className="text-xs text-neutral-500 mb-1">Email verificado</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium text-neutral-800 truncate">{formData.email}</p>
+                <button
+                  onClick={() => setStage('check-email')}
+                  className="text-sm text-indigo-600 hover:underline shrink-0"
+                >
+                  Trocar email
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-center mb-4">
+              <div
                 className="relative w-24 h-24 rounded-full bg-neutral-100 border-2 border-dashed border-neutral-300 flex items-center justify-center cursor-pointer overflow-hidden hover:bg-neutral-50 transition-colors shrink-0"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -142,54 +263,46 @@ export default function Register() {
                     <span className="text-[10px]">Foto</span>
                   </div>
                 )}
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  className="hidden" 
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
                   accept="image/*"
                   onChange={handleFileChange}
                 />
               </div>
             </div>
 
-            <input 
-              name="name" 
-              placeholder="Nome Completo" 
+            <input
+              name="name"
+              placeholder="Nome Completo"
               className="w-full p-3 border border-neutral-200 rounded-xl"
               value={formData.name}
               onChange={handleInputChange}
             />
-            <input 
-              name="email" 
-              type="email"
-              placeholder="Email" 
-              className="w-full p-3 border border-neutral-200 rounded-xl"
-              value={formData.email}
-              onChange={handleInputChange}
-            />
-            <input 
-              name="academic_bg" 
-              placeholder="Formação Acadêmica" 
+            <input
+              name="academic_bg"
+              placeholder="Formação Acadêmica"
               className="w-full p-3 border border-neutral-200 rounded-xl"
               value={formData.academic_bg}
               onChange={handleInputChange}
             />
-            <textarea 
-              name="professional_history" 
-              placeholder="Breve Histórico Profissional" 
+            <textarea
+              name="professional_history"
+              placeholder="Breve Histórico Profissional"
               className="w-full p-3 border border-neutral-200 rounded-xl h-24"
               value={formData.professional_history}
               onChange={handleInputChange}
             />
             <div className="pt-2">
-              {error && step === 1 && (
+              {error && (
                 <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg mb-3 text-sm">
                   <AlertCircle size={16} />
                   <span>{error}</span>
                 </div>
               )}
-              <button 
-                onClick={handleNextStep}
+              <button
+                onClick={handleNextToSkills}
                 className="w-full bg-indigo-600 text-white p-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors"
               >
                 Próximo: Suas Habilidades
@@ -198,7 +311,7 @@ export default function Register() {
           </div>
         )}
 
-        {step === 2 && (
+        {stage === 'skills' && (
           <div className="flex flex-col flex-1 min-h-0">
             <h2 className="text-xl font-semibold mb-4 shrink-0">Quais são seus superpoderes?</h2>
             <div className="flex-grow overflow-y-auto pr-2 space-y-6 min-h-0">
@@ -224,21 +337,21 @@ export default function Register() {
               ))}
             </div>
             <div className="mt-6 shrink-0 pt-4 border-t border-neutral-100">
-              {error && step === 2 && (
+              {error && (
                 <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg mb-3 text-sm">
                   <AlertCircle size={16} />
                   <span>{error}</span>
                 </div>
               )}
               <div className="flex gap-3">
-                <button 
-                  onClick={() => setStep(1)}
+                <button
+                  onClick={() => setStage('profile')}
                   disabled={loading}
                   className="flex-1 bg-neutral-100 text-neutral-700 p-3 rounded-xl font-medium hover:bg-neutral-200 transition-colors disabled:opacity-50"
                 >
                   Voltar
                 </button>
-                <button 
+                <button
                   onClick={handleSubmit}
                   disabled={loading}
                   className="flex-1 bg-indigo-600 text-white p-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
