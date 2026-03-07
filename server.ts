@@ -1,17 +1,23 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { initDb } from './src/db.js';
 import db from './src/db.js';
 import { GoogleGenAI } from "@google/genai";
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Initialize Database
 initDb();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const isProduction = process.env.NODE_ENV === 'production';
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.get('/healthz', (_req, res) => res.status(200).json({ ok: true }));
 
 // API Routes
 
@@ -395,12 +401,22 @@ app.post('/api/ai/assign-roles', async (req, res) => {
 
 // Vite Middleware
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(__dirname, 'dist');
+    app.use(express.static(distPath));
+
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        return next();
+      }
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {

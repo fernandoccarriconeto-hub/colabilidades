@@ -4,5 +4,11 @@ dist/
 coverage/
 .DS_Store
 *.log
+.tools/
+.tmp/
+*.db
+*.db-shm
+*.db-wal
+tsconfig.tsbuildinfo
 .env*
 !.env.example
