@@ -24,11 +24,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string) => {
-    const normalizedEmail = email.trim();
-    if (!normalizedEmail) return false;
-
     try {
-      const res = await fetch(`/api/users/${encodeURIComponent(normalizedEmail)}`);
+      const res = await fetch(`/api/users/${email}`);
       if (res.ok) {
         const userData = await res.json();
         setUser(userData);
